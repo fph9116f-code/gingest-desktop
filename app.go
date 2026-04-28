@@ -51,7 +51,9 @@ func (a *App) SelectAndScanLocalDirectory() (model.GingestResponse, error) {
 		return model.GingestResponse{}, nil
 	}
 
-	return a.ScanLocalDirectory(path)
+	return ingest.ScanLocalDirectoryWithProgress(path, model.IngestOptions{}, func(progress model.ScanProgress) {
+		runtime.EventsEmit(a.ctx, "scan-progress", progress)
+	})
 }
 
 func (a *App) SaveXMLFile(content string, suggestedFileName string) (string, error) {

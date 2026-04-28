@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
 import { ElMessage, ElTree } from 'element-plus'
 import {
   FolderOpened,
@@ -14,6 +14,7 @@ import {
   SelectAndScanLocalDirectory,
   SaveXMLFile,
 } from '../wailsjs/go/main/App'
+import { EventsOn, EventsOff } from '../wailsjs/runtime/runtime'
 
 interface TreeNode {
   id?: number
@@ -34,12 +35,23 @@ interface GingestResponse {
   fullContent: string
 }
 
+interface ScanProgress {
+  stage: string
+  message: string
+  currentPath: string
+  processedFiles: number
+  skippedFiles: number
+  totalSize: number
+  formattedSize: string
+}
+
 const loading = ref(false)
 const message = ref('')
 const resultData = ref<GingestResponse | null>(null)
 const filterText = ref('')
 const treeRef = ref<InstanceType<typeof ElTree>>()
 const currentViewTitle = ref('全部提取结果')
+const scanProgress = ref<ScanProgress | null>(null)
 
 const MAX_DISPLAY_LENGTH = 100000
 
@@ -59,6 +71,26 @@ const previewContent = computed(() => {
   )
 })
 
+const scanProgressPercentage = computed(() => {
+  if (!loading.value) return 100
+  if (!scanProgress.value) return 5
+
+  switch (scanProgress.value.stage) {
+    case 'start':
+      return 10
+    case 'scanning':
+      return 45
+    case 'building':
+      return 80
+    case 'done':
+      return 100
+    case 'error':
+      return 100
+    default:
+      return 20
+  }
+})
+
 const treeProps = {
   children: 'children',
   label: 'label',
@@ -70,6 +102,16 @@ const filterNode = (value: string, data: any) => {
 }
 watch(filterText, (value) => {
   treeRef.value?.filter(value)
+})
+
+onMounted(() => {
+  EventsOn('scan-progress', (progress: ScanProgress) => {
+    scanProgress.value = progress
+  })
+})
+
+onUnmounted(() => {
+  EventsOff('scan-progress')
 })
 
 const testGoCall = async () => {
@@ -85,12 +127,22 @@ const testGoCall = async () => {
 const handleScanLocal = async () => {
   loading.value = true
   resultData.value = null
+  scanProgress.value = {
+    stage: 'start',
+    message: '准备选择目录',
+    currentPath: '',
+    processedFiles: 0,
+    skippedFiles: 0,
+    totalSize: 0,
+    formattedSize: '0 B',
+  }
 
   try {
     const response = await SelectAndScanLocalDirectory()
 
     if (!response || !response.projectName) {
       ElMessage.info('已取消选择目录')
+      scanProgress.value = null
       return
     }
 
@@ -277,7 +329,38 @@ const resetView = () => {
         </div>
       </el-header>
 
-      <el-main class="main" v-loading="loading" element-loading-text="正在扫描本地项目...">
+      <el-main class="main">
+        <el-card v-if="loading || scanProgress" shadow="never" class="progress-card">
+          <div class="progress-header">
+            <strong>扫描进度</strong>
+            <el-tag v-if="scanProgress" type="info">
+              {{ scanProgress.stage }}
+            </el-tag>
+          </div>
+
+          <el-progress
+              :percentage="scanProgressPercentage"
+              :indeterminate="loading && scanProgress?.stage === 'scanning'"
+          />
+
+          <div class="progress-detail">
+            <div>
+              <strong>状态：</strong>
+              {{ scanProgress?.message || '准备中...' }}
+            </div>
+
+            <div>
+              <strong>当前：</strong>
+              <span class="current-path">{{ scanProgress?.currentPath || '-' }}</span>
+            </div>
+
+            <div class="progress-stats">
+              <span>已处理：{{ scanProgress?.processedFiles || 0 }} 文件</span>
+              <span>已跳过：{{ scanProgress?.skippedFiles || 0 }} 项</span>
+              <span>已读取：{{ scanProgress?.formattedSize || '0 B' }}</span>
+            </div>
+          </div>
+        </el-card>
         <template v-if="resultData">
           <div class="top-grid">
             <el-card shadow="never" class="summary-card">
@@ -513,5 +596,35 @@ const resetView = () => {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+.progress-card {
+  flex-shrink: 0;
+}
+
+.progress-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.progress-detail {
+  margin-top: 12px;
+  font-size: 13px;
+  color: #606266;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.current-path {
+  font-family: Consolas, 'Courier New', monospace;
+  word-break: break-all;
+}
+
+.progress-stats {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
 }
 </style>

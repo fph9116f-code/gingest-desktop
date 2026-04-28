@@ -24,3 +24,13 @@ type IngestOptions struct {
 	MaxTotalSize      int64
 	MaxSingleFileSize int64
 }
+
+type ScanProgress struct {
+	Stage          string `json:"stage"`
+	Message        string `json:"message"`
+	CurrentPath    string `json:"currentPath"`
+	ProcessedFiles int64  `json:"processedFiles"`
+	SkippedFiles   int64  `json:"skippedFiles"`
+	TotalSize      int64  `json:"totalSize"`
+	FormattedSize  string `json:"formattedSize"`
+}
