@@ -6,6 +6,14 @@ export function Greet(arg1) {
   return window['go']['main']['App']['Greet'](arg1);
 }
 
+export function ScanLocalDirectory(arg1) {
+  return window['go']['main']['App']['ScanLocalDirectory'](arg1);
+}
+
+export function SelectAndScanLocalDirectory() {
+  return window['go']['main']['App']['SelectAndScanLocalDirectory']();
+}
+
 export function SelectDirectory() {
   return window['go']['main']['App']['SelectDirectory']();
 }
