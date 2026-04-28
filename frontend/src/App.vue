@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { computed, ref, watch } from 'vue'
+import { ElMessage, ElTree } from 'element-plus'
 import {
   FolderOpened,
   Connection,
@@ -12,6 +12,7 @@ import {
 import {
   Greet,
   SelectAndScanLocalDirectory,
+  SaveXMLFile,
 } from '../wailsjs/go/main/App'
 
 interface TreeNode {
@@ -37,6 +38,8 @@ const loading = ref(false)
 const message = ref('')
 const resultData = ref<GingestResponse | null>(null)
 const filterText = ref('')
+const treeRef = ref<InstanceType<typeof ElTree>>()
+const currentViewTitle = ref('全部提取结果')
 
 const MAX_DISPLAY_LENGTH = 100000
 
@@ -61,10 +64,13 @@ const treeProps = {
   label: 'label',
 }
 
-const filterNode = (value: string, data: TreeNode) => {
+const filterNode = (value: string, data: any) => {
   if (!value) return true
-  return data.label.toLowerCase().includes(value.toLowerCase())
+  return data.label?.toLowerCase().includes(value.toLowerCase())
 }
+watch(filterText, (value) => {
+  treeRef.value?.filter(value)
+})
 
 const testGoCall = async () => {
   try {
@@ -89,6 +95,7 @@ const handleScanLocal = async () => {
     }
 
     resultData.value = response as GingestResponse
+    currentViewTitle.value = '全部提取结果'
     ElMessage.success(`扫描完成，共 ${response.fileCount} 个文件`)
   } catch (error: any) {
     console.error(error)
@@ -110,9 +117,128 @@ const handleCopy = async () => {
   }
 }
 
+const handleAssembleSelected = () => {
+  if (!resultData.value || !treeRef.value) return
+
+  const checkedNodes = treeRef.value.getCheckedNodes(false, true) as TreeNode[]
+  const selectedFiles = checkedNodes.filter((node) => node.isFile)
+
+  if (selectedFiles.length === 0) {
+    ElMessage.warning('请先在目录树中勾选需要组装的文件')
+    return
+  }
+
+  const xml = buildXmlByFiles(selectedFiles, `Selected Files (${selectedFiles.length} files)`)
+
+  resultData.value = {
+    ...resultData.value,
+    fileCount: selectedFiles.length,
+    estimatedTokens: Math.floor(xml.length / 4),
+    formattedSize: `${(new Blob([xml]).size / 1024).toFixed(2)} KB`,
+    content: xml,
+  }
+
+  currentViewTitle.value = `已组装勾选文件：${selectedFiles.length} 个`
+  ElMessage.success(`组装完成，共 ${selectedFiles.length} 个文件`)
+}
+
+const escapeXmlAttribute = (value: string) => {
+  return value
+      .replaceAll('&', '&amp;')
+      .replaceAll('"', '&quot;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+}
+
+const safeCDATA = (value: string) => {
+  return value.replaceAll(']]>', ']]]]><![CDATA[>')
+}
+
+const generateTreeText = (nodes: TreeNode[], prefix = ''): string => {
+  let text = ''
+
+  nodes.forEach((node, index) => {
+    const isLast = index === nodes.length - 1
+    const connector = isLast ? '└── ' : '├── '
+    const childPrefix = prefix + (isLast ? '    ' : '│   ')
+
+    text += prefix + connector + node.label + (node.isFile ? '' : '/') + '\n'
+
+    if (node.children && node.children.length > 0) {
+      text += generateTreeText(node.children, childPrefix)
+    }
+  })
+
+  return text
+}
+
+const buildXmlByFiles = (files: TreeNode[], exportType: string) => {
+  if (!resultData.value) return ''
+
+  let xml = ''
+  xml += '<project_summary>\n'
+  xml += `Project: ${resultData.value.projectName}\n`
+  xml += `Export Type: ${exportType}\n`
+  xml += `Total Files: ${files.length}\n`
+  xml += `Estimated Tokens: ${Math.floor(files.reduce((sum, file) => sum + (file.content?.length || 0), 0) / 4)}\n`
+  xml += '</project_summary>\n\n'
+
+  xml += '<directory_tree>\n'
+  xml += '.\n'
+  xml += generateTreeText(resultData.value.directoryTree)
+  xml += '</directory_tree>\n\n'
+
+  xml += '<files>\n'
+
+  files.forEach((file) => {
+    xml += `<file path="${escapeXmlAttribute(file.fullPath || file.label)}">\n`
+    xml += '<![CDATA[\n'
+    xml += safeCDATA(file.content || '')
+    xml += '\n]]>\n'
+    xml += '</file>\n\n'
+  })
+
+  xml += '</files>'
+
+  return xml
+}
+
+const buildSuggestedFileName = () => {
+  if (!resultData.value?.projectName) return 'gingest_export.xml'
+
+  return (
+      resultData.value.projectName
+          .replace(/^Local:\s*/, '')
+          .replace(/[\\/:*?"<>|]/g, '_') +
+      '_gingest.xml'
+  )
+}
+
+const handleSaveXML = async () => {
+  if (!resultData.value?.content) {
+    ElMessage.warning('当前没有可保存的 XML 内容')
+    return
+  }
+
+  try {
+    const savedPath = await SaveXMLFile(resultData.value.content, buildSuggestedFileName())
+
+    if (!savedPath) {
+      ElMessage.info('已取消保存')
+      return
+    }
+
+    ElMessage.success(`保存成功：${savedPath}`)
+  } catch (error: any) {
+    console.error(error)
+    ElMessage.error(error?.message || '保存失败')
+  }
+}
+
 const resetView = () => {
   resultData.value = null
   filterText.value = ''
+  currentViewTitle.value = '全部提取结果'
 }
 </script>
 
@@ -182,13 +308,20 @@ const resetView = () => {
               <template #header>
                 <div class="card-header">
                   <strong>目录结构</strong>
-                  <el-input
-                      v-model="filterText"
-                      placeholder="搜索文件"
-                      size="small"
-                      clearable
-                      class="search-input"
-                  />
+
+                  <div class="tree-actions">
+                    <el-input
+                        v-model="filterText"
+                        placeholder="搜索文件"
+                        size="small"
+                        clearable
+                        class="search-input"
+                    />
+
+                    <el-button type="primary" size="small" @click="handleAssembleSelected">
+                      组装勾选
+                    </el-button>
+                  </div>
                 </div>
               </template>
 
@@ -217,15 +350,15 @@ const resetView = () => {
           <el-card shadow="never" class="preview-card">
             <template #header>
               <div class="card-header">
-                <strong>XML 预览</strong>
+                <strong>XML 预览 - {{ currentViewTitle }}</strong>
 
                 <div>
                   <el-button type="success" :icon="Document" @click="handleCopy">
                     复制 XML
                   </el-button>
 
-                  <el-button type="warning" :icon="Download" disabled>
-                    下载 XML：下一步实现
+                  <el-button type="warning" :icon="Download" @click="handleSaveXML">
+                    保存 XML
                   </el-button>
                 </div>
               </div>
@@ -375,5 +508,10 @@ const resetView = () => {
 .empty-content {
   text-align: center;
   color: #606266;
+}
+.tree-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 </style>

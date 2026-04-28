@@ -4,6 +4,8 @@ import {model} from '../models';
 
 export function Greet(arg1:string):Promise<string>;
 
+export function SaveXMLFile(arg1:string,arg2:string):Promise<string>;
+
 export function ScanLocalDirectory(arg1:string):Promise<model.GingestResponse>;
 
 export function SelectAndScanLocalDirectory():Promise<model.GingestResponse>;

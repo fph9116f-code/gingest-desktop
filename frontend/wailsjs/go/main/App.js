@@ -6,6 +6,10 @@ export function Greet(arg1) {
   return window['go']['main']['App']['Greet'](arg1);
 }
 
+export function SaveXMLFile(arg1, arg2) {
+  return window['go']['main']['App']['SaveXMLFile'](arg1, arg2);
+}
+
 export function ScanLocalDirectory(arg1) {
   return window['go']['main']['App']['ScanLocalDirectory'](arg1);
 }

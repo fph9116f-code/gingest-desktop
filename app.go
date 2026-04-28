@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"errors"
+	"os"
+	"strings"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
@@ -49,4 +52,50 @@ func (a *App) SelectAndScanLocalDirectory() (model.GingestResponse, error) {
 	}
 
 	return a.ScanLocalDirectory(path)
+}
+
+func (a *App) SaveXMLFile(content string, suggestedFileName string) (string, error) {
+	if strings.TrimSpace(content) == "" {
+		return "", errors.New("XML 内容不能为空")
+	}
+
+	if strings.TrimSpace(suggestedFileName) == "" {
+		suggestedFileName = "gingest_export.xml"
+	}
+
+	if !strings.HasSuffix(strings.ToLower(suggestedFileName), ".xml") {
+		suggestedFileName += ".xml"
+	}
+
+	filePath, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		Title:           "保存 Gingest XML",
+		DefaultFilename: suggestedFileName,
+		Filters: []runtime.FileFilter{
+			{
+				DisplayName: "XML Files (*.xml)",
+				Pattern:     "*.xml",
+			},
+			{
+				DisplayName: "All Files (*.*)",
+				Pattern:     "*.*",
+			},
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+
+	if filePath == "" {
+		return "", nil
+	}
+
+	if !strings.HasSuffix(strings.ToLower(filePath), ".xml") {
+		filePath += ".xml"
+	}
+
+	if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
+		return "", err
+	}
+
+	return filePath, nil
 }
