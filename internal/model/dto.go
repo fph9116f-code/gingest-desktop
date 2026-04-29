@@ -70,6 +70,12 @@ type FilterConfig struct {
 	MaxSingleFileSizeMB int64    `json:"maxSingleFileSizeMB"`
 }
 
+type RecentDirectory struct {
+	Path       string `json:"path"`
+	Name       string `json:"name"`
+	LastScanAt string `json:"lastScanAt"`
+}
+
 func DefaultFilterConfig() FilterConfig {
 	return FilterConfig{
 		IgnoreDirectories: []string{

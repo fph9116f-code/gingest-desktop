@@ -77,3 +77,9 @@ export interface ProjectSummary {
     estimatedTokens: number
     formattedSize: string
 }
+
+export interface RecentDirectory {
+    path: string
+    name: string
+    lastScanAt: string
+}

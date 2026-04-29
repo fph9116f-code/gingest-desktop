@@ -44,9 +44,11 @@ func (a *App) GetFilterConfig() (model.FilterConfig, error) {
 
 func (a *App) SaveFilterConfig(config model.FilterConfig) (model.FilterConfig, error) {
 	config = model.NormalizeFilterConfig(config)
+
 	if err := appconfig.SaveFilterConfig(config); err != nil {
 		return model.FilterConfig{}, err
 	}
+
 	return config, nil
 }
 
@@ -54,15 +56,20 @@ func (a *App) ResetFilterConfig() (model.FilterConfig, error) {
 	return appconfig.ResetFilterConfig()
 }
 
-func (a *App) ScanLocalDirectory(path string) (model.GingestResponse, error) {
-	filterConfig, err := appconfig.LoadFilterConfig()
-	if err != nil {
-		return model.GingestResponse{}, err
-	}
+func (a *App) GetRecentDirectories() ([]model.RecentDirectory, error) {
+	return appconfig.LoadRecentDirectories()
+}
 
-	return ingest.ScanLocalDirectory(path, model.IngestOptions{
-		FilterConfig: filterConfig,
-	})
+func (a *App) ClearRecentDirectories() error {
+	return appconfig.ClearRecentDirectories()
+}
+
+func (a *App) ScanLocalDirectory(path string) (model.GingestResponse, error) {
+	return a.scanLocalDirectoryInternal(path, false)
+}
+
+func (a *App) ScanLocalDirectoryByPath(path string) (model.GingestResponse, error) {
+	return a.scanLocalDirectoryInternal(path, true)
 }
 
 func (a *App) SelectAndScanLocalDirectory() (model.GingestResponse, error) {
@@ -75,16 +82,31 @@ func (a *App) SelectAndScanLocalDirectory() (model.GingestResponse, error) {
 		return model.GingestResponse{}, nil
 	}
 
+	return a.scanLocalDirectoryInternal(path, true)
+}
+
+func (a *App) scanLocalDirectoryInternal(path string, saveRecent bool) (model.GingestResponse, error) {
 	filterConfig, err := appconfig.LoadFilterConfig()
 	if err != nil {
 		return model.GingestResponse{}, err
 	}
 
-	return ingest.ScanLocalDirectoryWithProgress(path, model.IngestOptions{
+	response, err := ingest.ScanLocalDirectoryWithProgress(path, model.IngestOptions{
 		FilterConfig: filterConfig,
 	}, func(progress model.ScanProgress) {
 		runtime.EventsEmit(a.ctx, "scan-progress", progress)
 	})
+
+	if err != nil {
+		return response, err
+	}
+
+	if saveRecent && response.ProjectName != "" {
+		_, _ = appconfig.AddRecentDirectory(path)
+		runtime.EventsEmit(a.ctx, "recent-directories-changed")
+	}
+
+	return response, nil
 }
 
 func (a *App) SaveXMLFile(content string, suggestedFileName string) (string, error) {

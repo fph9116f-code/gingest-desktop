@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 import AppHeader from './components/AppHeader.vue'
 import FileTreePanel from './components/FileTreePanel.vue'
+import RecentDirectories from './components/RecentDirectories.vue'
 import ScanProgressCard from './components/ScanProgressCard.vue'
 import SettingsDrawer from './components/SettingsDrawer.vue'
 import SummaryPanel from './components/SummaryPanel.vue'
@@ -11,7 +12,13 @@ import XmlPreviewPanel from './components/XmlPreviewPanel.vue'
 
 import { gingestApi } from './api/gingestApi'
 import { buildSuggestedXmlFileName, buildXmlByFiles } from './utils/xml'
-import type { FilterConfig, GingestResponse, ScanProgress, TreeNode } from './types/gingest'
+import type {
+  FilterConfig,
+  GingestResponse,
+  RecentDirectory,
+  ScanProgress,
+  TreeNode,
+} from './types/gingest'
 import { EventsOff, EventsOn } from '../wailsjs/runtime/runtime'
 
 const loading = ref(false)
@@ -22,6 +29,7 @@ const message = ref('')
 const resultData = ref<GingestResponse | null>(null)
 const fullResultData = ref<GingestResponse | null>(null)
 const filterConfig = ref<FilterConfig | null>(null)
+const recentDirectories = ref<RecentDirectory[]>([])
 const scanProgress = ref<ScanProgress | null>(null)
 
 const currentViewTitle = ref('全部提取结果')
@@ -54,6 +62,15 @@ const loadFilterConfig = async () => {
     ElMessage.error(error?.message || '读取过滤配置失败')
   } finally {
     settingsLoading.value = false
+  }
+}
+
+const loadRecentDirectories = async () => {
+  try {
+    recentDirectories.value = await gingestApi.getRecentDirectories()
+  } catch (error: any) {
+    console.error(error)
+    ElMessage.error(error?.message || '读取最近目录失败')
   }
 }
 
@@ -95,7 +112,7 @@ const handleTestGo = async () => {
   }
 }
 
-const handleScanLocal = async () => {
+const prepareScanState = () => {
   loading.value = true
   resultData.value = null
   fullResultData.value = null
@@ -103,40 +120,89 @@ const handleScanLocal = async () => {
 
   scanProgress.value = {
     stage: 'start',
-    message: '准备选择目录',
+    message: '准备扫描目录',
     currentPath: '',
     processedFiles: 0,
     skippedFiles: 0,
     totalSize: 0,
     formattedSize: '0 B',
   }
+}
+
+const applyScanResult = async (response: GingestResponse | null | undefined) => {
+  if (!response || !response.projectName) {
+    ElMessage.info('已取消选择目录')
+    scanProgress.value = null
+    return
+  }
+
+  resultData.value = response
+  fullResultData.value = JSON.parse(JSON.stringify(response))
+  currentViewTitle.value = '全部提取结果'
+
+  await loadRecentDirectories()
+
+  if (response.diagnostics?.stoppedEarly) {
+    ElMessage.warning(response.diagnostics.stopReason || '扫描已因配置限制提前停止')
+  } else if (response.fileCount === 0) {
+    ElMessage.warning(response.diagnostics?.noFileHint || '扫描完成，但没有匹配到有效文件')
+  } else {
+    ElMessage.success(`扫描完成，共 ${response.fileCount} 个文件`)
+  }
+}
+
+const handleScanLocal = async () => {
+  prepareScanState()
 
   try {
     const response = await gingestApi.scanLocalProject()
-
-    if (!response || !response.projectName) {
-      ElMessage.info('已取消选择目录')
-      scanProgress.value = null
-      return
-    }
-
-    resultData.value = response
-    fullResultData.value = JSON.parse(JSON.stringify(response))
-    currentViewTitle.value = '全部提取结果'
-
-    if (response.diagnostics?.stoppedEarly) {
-      ElMessage.warning(response.diagnostics.stopReason || '扫描已因配置限制提前停止')
-    } else if (response.fileCount === 0) {
-      ElMessage.warning(response.diagnostics?.noFileHint || '扫描完成，但没有匹配到有效文件')
-    } else {
-      ElMessage.success(`扫描完成，共 ${response.fileCount} 个文件`)
-    }
+    await applyScanResult(response)
   } catch (error: any) {
     console.error(error)
     ElMessage.error(error?.message || '扫描失败')
   } finally {
     loading.value = false
     scanProgress.value = null
+  }
+}
+
+const handleRescanRecentDirectory = async (path: string) => {
+  if (!path) return
+
+  prepareScanState()
+
+  try {
+    const response = await gingestApi.scanLocalProjectByPath(path)
+    await applyScanResult(response)
+  } catch (error: any) {
+    console.error(error)
+    ElMessage.error(error?.message || '重新扫描失败，请确认目录是否仍然存在')
+    await loadRecentDirectories()
+  } finally {
+    loading.value = false
+    scanProgress.value = null
+  }
+}
+
+const handleClearRecentDirectories = async () => {
+  if (recentDirectories.value.length === 0) return
+
+  try {
+    await ElMessageBox.confirm(
+        '确认清空所有最近扫描目录吗？',
+        '清空最近目录',
+        {
+          type: 'warning',
+          confirmButtonText: '确认清空',
+          cancelButtonText: '取消',
+        },
+    )
+
+    await gingestApi.clearRecentDirectories()
+    recentDirectories.value = []
+    ElMessage.success('已清空最近扫描目录')
+  } catch (error) {
+    // 用户取消不提示
   }
 }
 
@@ -253,11 +319,19 @@ onMounted(async () => {
     scanProgress.value = progress
   })
 
-  await loadFilterConfig()
+  EventsOn('recent-directories-changed', async () => {
+    await loadRecentDirectories()
+  })
+
+  await Promise.all([
+    loadFilterConfig(),
+    loadRecentDirectories(),
+  ])
 })
 
 onUnmounted(() => {
   EventsOff('scan-progress')
+  EventsOff('recent-directories-changed')
   document.removeEventListener('mousemove', handleResize)
   document.removeEventListener('mouseup', stopResize)
 })
@@ -316,13 +390,22 @@ onUnmounted(() => {
           </div>
         </template>
 
-        <el-card v-else shadow="never" class="empty-card">
-          <div class="empty-content">
-            <h2>Gingest Desktop</h2>
-            <p>点击右上角「选择并扫描本地项目」，开始生成 AI 代码上下文。</p>
-            <p class="empty-subtitle">Facade 入口树已排除，当前只保留通用代码上下文构建能力。</p>
-          </div>
-        </el-card>
+        <div v-else class="empty-wrapper">
+          <el-card shadow="never" class="empty-card">
+            <div class="empty-content">
+              <h2>Gingest Desktop</h2>
+              <p>点击右上角「选择并扫描本地项目」，开始生成 AI 代码上下文。</p>
+              <p class="empty-subtitle">当前专注本地模式：扫描、过滤、诊断、组装、保存。</p>
+            </div>
+          </el-card>
+
+          <RecentDirectories
+              :directories="recentDirectories"
+              :loading="loading"
+              @rescan="handleRescanRecentDirectory"
+              @clear="handleClearRecentDirectories"
+          />
+        </div>
       </el-main>
 
       <SettingsDrawer
@@ -406,13 +489,16 @@ onUnmounted(() => {
   background: #409eff;
 }
 
-.empty-card {
+.empty-wrapper {
   flex: 1;
-  width: 100%;
   min-height: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  overflow: auto;
+  padding: 24px 0;
+}
+
+.empty-card {
+  width: min(760px, 100%);
+  margin: 0 auto;
 }
 
 .empty-card :deep(.el-card__body) {
