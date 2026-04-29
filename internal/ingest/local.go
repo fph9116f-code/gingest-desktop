@@ -14,12 +14,6 @@ import (
 	"gingest-desktop/internal/utils"
 )
 
-const (
-	defaultMaxFileCount      int64 = 3000
-	defaultMaxTotalSize      int64 = 50 * 1024 * 1024
-	defaultMaxSingleFileSize int64 = 2 * 1024 * 1024
-)
-
 func ScanLocalDirectory(rootPath string, options model.IngestOptions) (model.GingestResponse, error) {
 	return ScanLocalDirectoryWithProgress(rootPath, options, nil)
 }
@@ -107,7 +101,7 @@ func ScanLocalDirectoryWithProgress(
 		relativePath = filepath.ToSlash(relativePath)
 
 		if entry.IsDir() {
-			if ShouldIgnoreDirectory(entry.Name()) {
+			if ShouldIgnoreDirectory(entry.Name(), options.FilterConfig) {
 				skippedFiles++
 				emitProgress("scanning", "跳过忽略目录", relativePath, false)
 				return filepath.SkipDir
@@ -128,7 +122,7 @@ func ScanLocalDirectoryWithProgress(
 			return nil
 		}
 
-		if ShouldIgnoreFile(entry.Name()) {
+		if ShouldIgnoreFile(entry.Name(), options.FilterConfig) {
 			skipFile("跳过忽略文件", relativePath)
 			return nil
 		}
@@ -150,11 +144,11 @@ func ScanLocalDirectoryWithProgress(
 		}
 
 		if fileCount >= options.MaxFileCount {
-			return errors.New("安全熔断：代码文件数量超过限制，请缩小扫描范围")
+			return errors.New("安全熔断：代码文件数量超过限制，请缩小扫描范围或调整过滤配置")
 		}
 
 		if totalSize+fileInfo.Size() > options.MaxTotalSize {
-			return errors.New("安全熔断：源码体积超过限制，请缩小扫描范围")
+			return errors.New("安全熔断：源码体积超过限制，请缩小扫描范围或调整过滤配置")
 		}
 
 		contentBytes, err := os.ReadFile(path)
@@ -211,15 +205,30 @@ func ScanLocalDirectoryWithProgress(
 }
 
 func normalizeOptions(options *model.IngestOptions) {
+	if isEmptyFilterConfig(options.FilterConfig) {
+		options.FilterConfig = model.DefaultFilterConfig()
+	}
+
+	options.FilterConfig = model.NormalizeFilterConfig(options.FilterConfig)
+
 	if options.MaxFileCount <= 0 {
-		options.MaxFileCount = defaultMaxFileCount
+		options.MaxFileCount = options.FilterConfig.MaxFileCount
 	}
 
 	if options.MaxTotalSize <= 0 {
-		options.MaxTotalSize = defaultMaxTotalSize
+		options.MaxTotalSize = options.FilterConfig.MaxTotalSizeMB * 1024 * 1024
 	}
 
 	if options.MaxSingleFileSize <= 0 {
-		options.MaxSingleFileSize = defaultMaxSingleFileSize
+		options.MaxSingleFileSize = options.FilterConfig.MaxSingleFileSizeMB * 1024 * 1024
 	}
+}
+
+func isEmptyFilterConfig(config model.FilterConfig) bool {
+	return len(config.IgnoreDirectories) == 0 &&
+		len(config.IgnoreExtensions) == 0 &&
+		len(config.IgnoreFileNames) == 0 &&
+		config.MaxFileCount <= 0 &&
+		config.MaxTotalSizeMB <= 0 &&
+		config.MaxSingleFileSizeMB <= 0
 }

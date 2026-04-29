@@ -8,6 +8,7 @@ import (
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
+	appconfig "gingest-desktop/internal/config"
 	"gingest-desktop/internal/ingest"
 	"gingest-desktop/internal/model"
 )
@@ -37,8 +38,31 @@ func (a *App) SelectDirectory() (string, error) {
 	})
 }
 
+func (a *App) GetFilterConfig() (model.FilterConfig, error) {
+	return appconfig.LoadFilterConfig()
+}
+
+func (a *App) SaveFilterConfig(config model.FilterConfig) (model.FilterConfig, error) {
+	config = model.NormalizeFilterConfig(config)
+	if err := appconfig.SaveFilterConfig(config); err != nil {
+		return model.FilterConfig{}, err
+	}
+	return config, nil
+}
+
+func (a *App) ResetFilterConfig() (model.FilterConfig, error) {
+	return appconfig.ResetFilterConfig()
+}
+
 func (a *App) ScanLocalDirectory(path string) (model.GingestResponse, error) {
-	return ingest.ScanLocalDirectory(path, model.IngestOptions{})
+	filterConfig, err := appconfig.LoadFilterConfig()
+	if err != nil {
+		return model.GingestResponse{}, err
+	}
+
+	return ingest.ScanLocalDirectory(path, model.IngestOptions{
+		FilterConfig: filterConfig,
+	})
 }
 
 func (a *App) SelectAndScanLocalDirectory() (model.GingestResponse, error) {
@@ -51,7 +75,14 @@ func (a *App) SelectAndScanLocalDirectory() (model.GingestResponse, error) {
 		return model.GingestResponse{}, nil
 	}
 
-	return ingest.ScanLocalDirectoryWithProgress(path, model.IngestOptions{}, func(progress model.ScanProgress) {
+	filterConfig, err := appconfig.LoadFilterConfig()
+	if err != nil {
+		return model.GingestResponse{}, err
+	}
+
+	return ingest.ScanLocalDirectoryWithProgress(path, model.IngestOptions{
+		FilterConfig: filterConfig,
+	}, func(progress model.ScanProgress) {
 		runtime.EventsEmit(a.ctx, "scan-progress", progress)
 	})
 }

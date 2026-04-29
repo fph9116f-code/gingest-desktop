@@ -2,6 +2,7 @@ package ingest
 
 import (
 	"html"
+	"strconv"
 	"strings"
 
 	"gingest-desktop/internal/model"
@@ -15,10 +16,10 @@ func BuildFullXML(response model.GingestResponse) string {
 	sb.WriteString(response.ProjectName)
 	sb.WriteString("\n")
 	sb.WriteString("Total Files: ")
-	sb.WriteString(intToString(response.FileCount))
+	sb.WriteString(strconv.Itoa(response.FileCount))
 	sb.WriteString("\n")
 	sb.WriteString("Estimated Tokens: ")
-	sb.WriteString(int64ToString(response.EstimatedTokens))
+	sb.WriteString(strconv.FormatInt(response.EstimatedTokens, 10))
 	sb.WriteString("\n")
 	sb.WriteString("</project_summary>\n\n")
 
@@ -87,31 +88,4 @@ func appendFiles(sb *strings.Builder, nodes []model.TreeNode) {
 
 func safeCDATA(content string) string {
 	return strings.ReplaceAll(content, "]]>", "]]]]><![CDATA[>")
-}
-
-func intToString(value int) string {
-	return int64ToString(int64(value))
-}
-
-func int64ToString(value int64) string {
-	if value == 0 {
-		return "0"
-	}
-
-	var digits []byte
-	negative := value < 0
-	if negative {
-		value = -value
-	}
-
-	for value > 0 {
-		digits = append([]byte{byte('0' + value%10)}, digits...)
-		value /= 10
-	}
-
-	if negative {
-		digits = append([]byte{'-'}, digits...)
-	}
-
-	return string(digits)
 }

@@ -1,5 +1,7 @@
 package model
 
+import "strings"
+
 type GingestResponse struct {
 	ProjectName     string     `json:"projectName"`
 	FileCount       int        `json:"fileCount"`
@@ -23,6 +25,7 @@ type IngestOptions struct {
 	MaxFileCount      int64
 	MaxTotalSize      int64
 	MaxSingleFileSize int64
+	FilterConfig      FilterConfig
 }
 
 type ScanProgress struct {
@@ -33,4 +36,132 @@ type ScanProgress struct {
 	SkippedFiles   int64  `json:"skippedFiles"`
 	TotalSize      int64  `json:"totalSize"`
 	FormattedSize  string `json:"formattedSize"`
+}
+
+type FilterConfig struct {
+	IgnoreDirectories   []string `json:"ignoreDirectories"`
+	IgnoreExtensions    []string `json:"ignoreExtensions"`
+	IgnoreFileNames     []string `json:"ignoreFileNames"`
+	MaxFileCount        int64    `json:"maxFileCount"`
+	MaxTotalSizeMB      int64    `json:"maxTotalSizeMB"`
+	MaxSingleFileSizeMB int64    `json:"maxSingleFileSizeMB"`
+}
+
+func DefaultFilterConfig() FilterConfig {
+	return FilterConfig{
+		IgnoreDirectories: []string{
+			".git",
+			".idea",
+			".vscode",
+			"node_modules",
+			"dist",
+			"build",
+			"target",
+			"out",
+			"logs",
+			"coverage",
+			".next",
+			".nuxt",
+			".output",
+			"vendor",
+		},
+		IgnoreExtensions: []string{
+			".exe",
+			".dll",
+			".so",
+			".dylib",
+			".class",
+			".jar",
+			".war",
+			".ear",
+			".zip",
+			".tar",
+			".gz",
+			".rar",
+			".7z",
+			".png",
+			".jpg",
+			".jpeg",
+			".gif",
+			".webp",
+			".ico",
+			".svg",
+			".mp3",
+			".mp4",
+			".avi",
+			".mov",
+			".pdf",
+			".doc",
+			".docx",
+			".xls",
+			".xlsx",
+			".ppt",
+			".pptx",
+			".ttf",
+			".otf",
+			".woff",
+			".woff2",
+			".log",
+			".min.js",
+			".min.css",
+			".map",
+		},
+		IgnoreFileNames: []string{
+			"package-lock.json",
+			"pnpm-lock.yaml",
+			"yarn.lock",
+			"thumbs.db",
+			".ds_store",
+		},
+		MaxFileCount:        3000,
+		MaxTotalSizeMB:      50,
+		MaxSingleFileSizeMB: 2,
+	}
+}
+
+func NormalizeFilterConfig(config FilterConfig) FilterConfig {
+	defaultConfig := DefaultFilterConfig()
+
+	if config.MaxFileCount <= 0 {
+		config.MaxFileCount = defaultConfig.MaxFileCount
+	}
+
+	if config.MaxTotalSizeMB <= 0 {
+		config.MaxTotalSizeMB = defaultConfig.MaxTotalSizeMB
+	}
+
+	if config.MaxSingleFileSizeMB <= 0 {
+		config.MaxSingleFileSizeMB = defaultConfig.MaxSingleFileSizeMB
+	}
+
+	config.IgnoreDirectories = normalizeStringList(config.IgnoreDirectories, false)
+	config.IgnoreExtensions = normalizeStringList(config.IgnoreExtensions, true)
+	config.IgnoreFileNames = normalizeStringList(config.IgnoreFileNames, false)
+
+	return config
+}
+
+func normalizeStringList(values []string, isExtension bool) []string {
+	result := make([]string, 0, len(values))
+	seen := make(map[string]bool)
+
+	for _, value := range values {
+		item := strings.TrimSpace(strings.ToLower(value))
+		if item == "" {
+			continue
+		}
+
+		if isExtension && !strings.HasPrefix(item, ".") {
+			item = "." + item
+		}
+
+		if seen[item] {
+			continue
+		}
+
+		seen[item] = true
+		result = append(result, item)
+	}
+
+	return result
 }
