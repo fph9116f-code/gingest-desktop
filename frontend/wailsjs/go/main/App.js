@@ -22,6 +22,10 @@ export function ResetFilterConfig() {
   return window['go']['main']['App']['ResetFilterConfig']();
 }
 
+export function RevealInFileManager(arg1) {
+  return window['go']['main']['App']['RevealInFileManager'](arg1);
+}
+
 export function SaveFilterConfig(arg1) {
   return window['go']['main']['App']['SaveFilterConfig'](arg1);
 }

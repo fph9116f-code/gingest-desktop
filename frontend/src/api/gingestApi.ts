@@ -4,6 +4,7 @@ import {
     GetRecentDirectories,
     Greet,
     ResetFilterConfig,
+    RevealInFileManager,
     SaveFilterConfig,
     SaveXMLFile,
     ScanLocalDirectoryByPath,
@@ -47,5 +48,8 @@ export const gingestApi = {
 
     clearRecentDirectories(): Promise<void> {
         return ClearRecentDirectories()
+    },
+    revealInFileManager(path: string): Promise<void> {
+        return RevealInFileManager(path)
     },
 }

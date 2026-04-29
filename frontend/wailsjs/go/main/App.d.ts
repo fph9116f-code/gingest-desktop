@@ -12,6 +12,8 @@ export function Greet(arg1:string):Promise<string>;
 
 export function ResetFilterConfig():Promise<model.FilterConfig>;
 
+export function RevealInFileManager(arg1:string):Promise<void>;
+
 export function SaveFilterConfig(arg1:model.FilterConfig):Promise<model.FilterConfig>;
 
 export function SaveXMLFile(arg1:string,arg2:string):Promise<string>;

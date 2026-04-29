@@ -3,10 +3,14 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
+	goruntime "runtime"
 	"strings"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
 	appconfig "gingest-desktop/internal/config"
 	"gingest-desktop/internal/ingest"
@@ -33,7 +37,7 @@ func (a *App) Greet(name string) string {
 }
 
 func (a *App) SelectDirectory() (string, error) {
-	return runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
+	return wailsruntime.OpenDirectoryDialog(a.ctx, wailsruntime.OpenDialogOptions{
 		Title: "请选择要提取的项目目录",
 	})
 }
@@ -94,7 +98,7 @@ func (a *App) scanLocalDirectoryInternal(path string, saveRecent bool) (model.Gi
 	response, err := ingest.ScanLocalDirectoryWithProgress(path, model.IngestOptions{
 		FilterConfig: filterConfig,
 	}, func(progress model.ScanProgress) {
-		runtime.EventsEmit(a.ctx, "scan-progress", progress)
+		wailsruntime.EventsEmit(a.ctx, "scan-progress", progress)
 	})
 
 	if err != nil {
@@ -103,7 +107,7 @@ func (a *App) scanLocalDirectoryInternal(path string, saveRecent bool) (model.Gi
 
 	if saveRecent && response.ProjectName != "" {
 		_, _ = appconfig.AddRecentDirectory(path)
-		runtime.EventsEmit(a.ctx, "recent-directories-changed")
+		wailsruntime.EventsEmit(a.ctx, "recent-directories-changed")
 	}
 
 	return response, nil
@@ -122,10 +126,10 @@ func (a *App) SaveXMLFile(content string, suggestedFileName string) (string, err
 		suggestedFileName += ".xml"
 	}
 
-	filePath, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+	filePath, err := wailsruntime.SaveFileDialog(a.ctx, wailsruntime.SaveDialogOptions{
 		Title:           "保存 Gingest XML",
 		DefaultFilename: suggestedFileName,
-		Filters: []runtime.FileFilter{
+		Filters: []wailsruntime.FileFilter{
 			{
 				DisplayName: "XML Files (*.xml)",
 				Pattern:     "*.xml",
@@ -153,4 +157,49 @@ func (a *App) SaveXMLFile(content string, suggestedFileName string) (string, err
 	}
 
 	return filePath, nil
+}
+
+func (a *App) RevealInFileManager(targetPath string) error {
+	targetPath = strings.TrimSpace(targetPath)
+	if targetPath == "" {
+		return errors.New("文件路径不能为空")
+	}
+
+	absPath, err := filepath.Abs(targetPath)
+	if err != nil {
+		return err
+	}
+
+	info, err := os.Stat(absPath)
+	if err != nil {
+		return fmt.Errorf("文件或目录不存在: %s", absPath)
+	}
+
+	if info.IsDir() {
+		return openDirectory(absPath)
+	}
+
+	return revealFile(absPath)
+}
+
+func revealFile(filePath string) error {
+	switch goruntime.GOOS {
+	case "windows":
+		return exec.Command("explorer", "/select,", filePath).Start()
+	case "darwin":
+		return exec.Command("open", "-R", filePath).Start()
+	default:
+		return openDirectory(filepath.Dir(filePath))
+	}
+}
+
+func openDirectory(dirPath string) error {
+	switch goruntime.GOOS {
+	case "windows":
+		return exec.Command("explorer", dirPath).Start()
+	case "darwin":
+		return exec.Command("open", dirPath).Start()
+	default:
+		return exec.Command("xdg-open", dirPath).Start()
+	}
 }

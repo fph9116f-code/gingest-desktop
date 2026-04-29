@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { computed, h, onMounted, onUnmounted, ref } from 'vue'
+import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
 
 import AppHeader from './components/AppHeader.vue'
+import DropScanOverlay from './components/DropScanOverlay.vue'
 import FileTreePanel from './components/FileTreePanel.vue'
 import RecentDirectories from './components/RecentDirectories.vue'
 import ScanProgressCard from './components/ScanProgressCard.vue'
@@ -19,7 +20,12 @@ import type {
   ScanProgress,
   TreeNode,
 } from './types/gingest'
-import { EventsOff, EventsOn } from '../wailsjs/runtime/runtime'
+import {
+  EventsOff,
+  EventsOn,
+  OnFileDrop,
+  OnFileDropOff,
+} from '../wailsjs/runtime/runtime'
 
 const loading = ref(false)
 const settingsVisible = ref(false)
@@ -36,6 +42,9 @@ const currentViewTitle = ref('全部提取结果')
 const topHeight = ref(300)
 const isResizing = ref(false)
 const fileTreePanelRef = ref<InstanceType<typeof FileTreePanel>>()
+
+const dragActive = ref(false)
+let dragDepth = 0
 
 let resizeStartY = 0
 let resizeStartTopHeight = 300
@@ -112,7 +121,7 @@ const handleTestGo = async () => {
   }
 }
 
-const prepareScanState = () => {
+const prepareScanState = (messageText = '准备扫描目录') => {
   loading.value = true
   resultData.value = null
   fullResultData.value = null
@@ -120,7 +129,7 @@ const prepareScanState = () => {
 
   scanProgress.value = {
     stage: 'start',
-    message: '准备扫描目录',
+    message: messageText,
     currentPath: '',
     processedFiles: 0,
     skippedFiles: 0,
@@ -152,7 +161,7 @@ const applyScanResult = async (response: GingestResponse | null | undefined) => 
 }
 
 const handleScanLocal = async () => {
-  prepareScanState()
+  prepareScanState('准备选择目录')
 
   try {
     const response = await gingestApi.scanLocalProject()
@@ -166,22 +175,93 @@ const handleScanLocal = async () => {
   }
 }
 
-const handleRescanRecentDirectory = async (path: string) => {
+const scanByPath = async (path: string, sourceLabel: string) => {
   if (!path) return
 
-  prepareScanState()
+  prepareScanState(`准备扫描${sourceLabel}`)
 
   try {
     const response = await gingestApi.scanLocalProjectByPath(path)
     await applyScanResult(response)
   } catch (error: any) {
     console.error(error)
-    ElMessage.error(error?.message || '重新扫描失败，请确认目录是否仍然存在')
+    ElMessage.error(error?.message || `${sourceLabel}扫描失败，请确认目录是否仍然存在`)
     await loadRecentDirectories()
   } finally {
     loading.value = false
     scanProgress.value = null
   }
+}
+
+const handleRescanRecentDirectory = async (path: string) => {
+  await scanByPath(path, '最近目录')
+}
+
+const handleDroppedPaths = async (paths: string[]) => {
+  dragActive.value = false
+  dragDepth = 0
+
+  if (loading.value) {
+    ElMessage.warning('当前正在扫描，请等待完成后再拖拽目录')
+    return
+  }
+
+  if (!paths || paths.length === 0) {
+    ElMessage.warning('没有识别到拖入路径')
+    return
+  }
+
+  const firstPath = paths[0]
+
+  if (paths.length > 1) {
+    ElMessage.info(`检测到 ${paths.length} 个路径，将默认扫描第一个`)
+  }
+
+  await scanByPath(firstPath, '拖拽目录')
+}
+
+const handleDragEnter = (event: DragEvent) => {
+  event.preventDefault()
+
+  if (loading.value) {
+    dragActive.value = true
+    return
+  }
+
+  dragDepth += 1
+  dragActive.value = true
+}
+
+const handleDragOver = (event: DragEvent) => {
+  event.preventDefault()
+
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = loading.value ? 'none' : 'copy'
+  }
+
+  dragActive.value = true
+}
+
+const handleDragLeave = (event: DragEvent) => {
+  event.preventDefault()
+
+  dragDepth = Math.max(0, dragDepth - 1)
+
+  if (dragDepth === 0 && !loading.value) {
+    dragActive.value = false
+  }
+}
+
+const handleDomDrop = (event: DragEvent) => {
+  event.preventDefault()
+
+  dragDepth = 0
+
+  window.setTimeout(() => {
+    if (!loading.value) {
+      dragActive.value = false
+    }
+  }, 200)
 }
 
 const handleClearRecentDirectories = async () => {
@@ -271,7 +351,30 @@ const handleSaveXML = async () => {
       return
     }
 
-    ElMessage.success(`保存成功：${savedPath}`)
+    ElNotification({
+      title: '保存成功',
+      type: 'success',
+      duration: 10000,
+      position: 'top-right',
+      message: h('div', { class: 'save-notification' }, [
+        h('div', { class: 'save-path' }, savedPath),
+        h(
+            'button',
+            {
+              class: 'save-open-button',
+              onClick: async () => {
+                try {
+                  await gingestApi.revealInFileManager(savedPath)
+                } catch (error: any) {
+                  console.error(error)
+                  ElMessage.error(error?.message || '打开所在位置失败')
+                }
+              },
+            },
+            '打开所在位置',
+        ),
+      ]),
+    })
   } catch (error: any) {
     console.error(error)
     ElMessage.error(error?.message || '保存失败')
@@ -323,6 +426,10 @@ onMounted(async () => {
     await loadRecentDirectories()
   })
 
+  OnFileDrop((_x: number, _y: number, paths: string[]) => {
+    void handleDroppedPaths(paths)
+  }, false)
+
   await Promise.all([
     loadFilterConfig(),
     loadRecentDirectories(),
@@ -332,13 +439,26 @@ onMounted(async () => {
 onUnmounted(() => {
   EventsOff('scan-progress')
   EventsOff('recent-directories-changed')
+  OnFileDropOff()
+
   document.removeEventListener('mousemove', handleResize)
   document.removeEventListener('mouseup', stopResize)
 })
 </script>
 
 <template>
-  <div class="page">
+  <div
+      class="page"
+      @dragenter.prevent="handleDragEnter"
+      @dragover.prevent="handleDragOver"
+      @dragleave.prevent="handleDragLeave"
+      @drop.prevent="handleDomDrop"
+  >
+    <DropScanOverlay
+        :active="dragActive"
+        :loading="loading"
+    />
+
     <el-container class="layout">
       <AppHeader
           :loading="loading"
@@ -394,7 +514,7 @@ onUnmounted(() => {
           <el-card shadow="never" class="empty-card">
             <div class="empty-content">
               <h2>Gingest Desktop</h2>
-              <p>点击右上角「选择并扫描本地项目」，开始生成 AI 代码上下文。</p>
+              <p>点击右上角「选择并扫描本地项目」，或直接拖入项目文件夹。</p>
               <p class="empty-subtitle">当前专注本地模式：扫描、过滤、诊断、组装、保存。</p>
             </div>
           </el-card>
