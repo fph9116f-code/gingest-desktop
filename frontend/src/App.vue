@@ -31,6 +31,33 @@ interface TreeNode {
   children?: TreeNode[]
 }
 
+interface SkipSample {
+  reason: string
+  path: string
+}
+
+interface ScanDiagnostics {
+  visitedItems: number
+  acceptedFiles: number
+  skippedItems: number
+  skipReasonCounts: Record<string, number>
+  skipSamples: SkipSample[]
+  noFileHint: string
+  effectiveConfig: FilterConfig
+  hitFileCountLimit: boolean
+  hitTotalSizeLimit: boolean
+  stoppedEarly: boolean
+  stopReason: string
+  stopPath: string
+}
+interface FilterConfig {
+  ignoreDirectories: string[]
+  ignoreExtensions: string[]
+  ignoreFileNames: string[]
+  maxFileCount: number
+  maxTotalSizeMB: number
+  maxSingleFileSizeMB: number
+}
 interface GingestResponse {
   projectName: string
   fileCount: number
@@ -39,8 +66,8 @@ interface GingestResponse {
   directoryTree: TreeNode[]
   content: string
   fullContent: string
+  diagnostics?: ScanDiagnostics
 }
-
 interface ScanProgress {
   stage: string
   message: string
@@ -51,14 +78,7 @@ interface ScanProgress {
   formattedSize: string
 }
 
-interface FilterConfig {
-  ignoreDirectories: string[]
-  ignoreExtensions: string[]
-  ignoreFileNames: string[]
-  maxFileCount: number
-  maxTotalSizeMB: number
-  maxSingleFileSizeMB: number
-}
+
 
 interface FilterConfigForm {
   ignoreDirectoriesText: string
@@ -118,6 +138,17 @@ const previewContent = computed(() => {
   )
 })
 
+const skipReasonRows = computed(() => {
+  const counts = resultData.value?.diagnostics?.skipReasonCounts || {}
+
+  return Object.entries(counts)
+      .map(([reason, count]) => ({
+        reason,
+        count,
+      }))
+      .sort((a, b) => b.count - a.count)
+})
+
 const scanProgressPercentage = computed(() => {
   if (!loading.value) return 100
   if (!scanProgress.value) return 5
@@ -129,6 +160,8 @@ const scanProgressPercentage = computed(() => {
       return 45
     case 'building':
       return 80
+    case 'limit':
+      return 95
     case 'done':
       return 100
     case 'error':
@@ -137,7 +170,6 @@ const scanProgressPercentage = computed(() => {
       return 20
   }
 })
-
 const hasAssembledView = computed(() => {
   return currentViewTitle.value !== '全部提取结果'
 })
@@ -281,7 +313,14 @@ const handleScanLocal = async () => {
     resultData.value = response
     fullResultData.value = JSON.parse(JSON.stringify(response))
     currentViewTitle.value = '全部提取结果'
-    ElMessage.success(`扫描完成，共 ${response.fileCount} 个文件`)
+
+    if (response.diagnostics?.stoppedEarly) {
+      ElMessage.warning(response.diagnostics.stopReason || '扫描已因配置限制提前停止')
+    } else if (response.fileCount === 0) {
+      ElMessage.warning(response.diagnostics?.noFileHint || '扫描完成，但没有匹配到有效文件')
+    } else {
+      ElMessage.success(`扫描完成，共 ${response.fileCount} 个文件`)
+    }
   } catch (error: any) {
     console.error(error)
     ElMessage.error(error?.message || '扫描失败')
@@ -596,6 +635,40 @@ onUnmounted(() => {
                     <span>{{ filterConfig?.ignoreExtensions?.length || 0 }}</span> 个扩展名，
                     <span>{{ filterConfig?.ignoreFileNames?.length || 0 }}</span> 个文件名。
                   </div>
+                  <el-alert
+                      v-if="resultData.diagnostics?.stoppedEarly"
+                      :title="resultData.diagnostics.stopReason"
+                      type="warning"
+                      show-icon
+                      :closable="false"
+                      class="diagnostics-alert"
+                  />
+                  <el-alert
+                      v-if="resultData.fileCount === 0 && resultData.diagnostics?.noFileHint"
+                      :title="resultData.diagnostics.noFileHint"
+                      type="warning"
+                      show-icon
+                      :closable="false"
+                      class="diagnostics-alert"
+                  />
+
+                  <div v-if="resultData.diagnostics" class="diagnostics-box">
+                    <div class="diagnostics-title">扫描诊断</div>
+                    <div class="diagnostics-grid">
+                      <div>
+                        <span>访问项</span>
+                        <strong>{{ resultData.diagnostics.visitedItems }}</strong>
+                      </div>
+                      <div>
+                        <span>有效文件</span>
+                        <strong>{{ resultData.diagnostics.acceptedFiles }}</strong>
+                      </div>
+                      <div>
+                        <span>跳过项</span>
+                        <strong>{{ resultData.diagnostics.skippedItems }}</strong>
+                      </div>
+                    </div>
+                  </div>
                 </el-card>
 
                 <el-card shadow="never" class="tree-card">
@@ -653,6 +726,29 @@ onUnmounted(() => {
                       </span>
                     </template>
                   </el-tree>
+                  <div v-if="resultData.fileCount === 0 && skipReasonRows.length > 0" class="skip-panel">
+                    <div class="skip-title">跳过原因统计</div>
+
+                    <el-table :data="skipReasonRows" size="small" height="180">
+                      <el-table-column prop="reason" label="原因" min-width="180" />
+                      <el-table-column prop="count" label="数量" width="80" align="right" />
+                    </el-table>
+
+                    <div
+                        v-if="resultData.diagnostics?.skipSamples?.length"
+                        class="skip-samples"
+                    >
+                      <div class="skip-title">跳过样例</div>
+                      <div
+                          v-for="item in resultData.diagnostics.skipSamples"
+                          :key="item.reason + item.path"
+                          class="skip-sample-item"
+                      >
+                        <el-tag size="small" type="info">{{ item.reason }}</el-tag>
+                        <span>{{ item.path }}</span>
+                      </div>
+                    </div>
+                  </div>
                 </el-card>
               </div>
             </div>

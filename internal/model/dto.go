@@ -3,13 +3,14 @@ package model
 import "strings"
 
 type GingestResponse struct {
-	ProjectName     string     `json:"projectName"`
-	FileCount       int        `json:"fileCount"`
-	EstimatedTokens int64      `json:"estimatedTokens"`
-	FormattedSize   string     `json:"formattedSize"`
-	DirectoryTree   []TreeNode `json:"directoryTree"`
-	Content         string     `json:"content"`
-	FullContent     string     `json:"fullContent"`
+	ProjectName     string          `json:"projectName"`
+	FileCount       int             `json:"fileCount"`
+	EstimatedTokens int64           `json:"estimatedTokens"`
+	FormattedSize   string          `json:"formattedSize"`
+	DirectoryTree   []TreeNode      `json:"directoryTree"`
+	Content         string          `json:"content"`
+	FullContent     string          `json:"fullContent"`
+	Diagnostics     ScanDiagnostics `json:"diagnostics"`
 }
 
 type TreeNode struct {
@@ -36,6 +37,28 @@ type ScanProgress struct {
 	SkippedFiles   int64  `json:"skippedFiles"`
 	TotalSize      int64  `json:"totalSize"`
 	FormattedSize  string `json:"formattedSize"`
+}
+
+type SkipSample struct {
+	Reason string `json:"reason"`
+	Path   string `json:"path"`
+}
+
+type ScanDiagnostics struct {
+	VisitedItems      int64            `json:"visitedItems"`
+	AcceptedFiles     int64            `json:"acceptedFiles"`
+	SkippedItems      int64            `json:"skippedItems"`
+	SkipReasonCounts  map[string]int64 `json:"skipReasonCounts"`
+	SkipSamples       []SkipSample     `json:"skipSamples"`
+	NoFileHint        string           `json:"noFileHint"`
+	EffectiveConfig   FilterConfig     `json:"effectiveConfig"`
+	HitFileCountLimit bool             `json:"hitFileCountLimit"`
+	HitTotalSizeLimit bool             `json:"hitTotalSizeLimit"`
+
+	// 新增：扫描是否被配置限制提前停止
+	StoppedEarly bool   `json:"stoppedEarly"`
+	StopReason   string `json:"stopReason"`
+	StopPath     string `json:"stopPath"`
 }
 
 type FilterConfig struct {
