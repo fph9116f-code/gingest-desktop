@@ -14,12 +14,21 @@ type GingestResponse struct {
 }
 
 type TreeNode struct {
-	ID       int        `json:"id,omitempty"`
-	Label    string     `json:"label"`
-	IsFile   bool       `json:"isFile"`
-	FullPath string     `json:"fullPath,omitempty"`
-	Content  string     `json:"content,omitempty"`
-	Children []TreeNode `json:"children,omitempty"`
+	ID              int        `json:"id,omitempty"`
+	Label           string     `json:"label"`
+	IsFile          bool       `json:"isFile"`
+	FullPath        string     `json:"fullPath,omitempty"`
+	Content         string     `json:"content,omitempty"`
+	SizeBytes       int64      `json:"sizeBytes,omitempty"`
+	FormattedSize   string     `json:"formattedSize,omitempty"`
+	EstimatedTokens int64      `json:"estimatedTokens,omitempty"`
+	Children        []TreeNode `json:"children,omitempty"`
+}
+
+type FileMetadata struct {
+	SizeBytes       int64  `json:"sizeBytes"`
+	FormattedSize   string `json:"formattedSize"`
+	EstimatedTokens int64  `json:"estimatedTokens"`
 }
 
 type IngestOptions struct {
@@ -54,11 +63,9 @@ type ScanDiagnostics struct {
 	EffectiveConfig   FilterConfig     `json:"effectiveConfig"`
 	HitFileCountLimit bool             `json:"hitFileCountLimit"`
 	HitTotalSizeLimit bool             `json:"hitTotalSizeLimit"`
-
-	// 新增：扫描是否被配置限制提前停止
-	StoppedEarly bool   `json:"stoppedEarly"`
-	StopReason   string `json:"stopReason"`
-	StopPath     string `json:"stopPath"`
+	StoppedEarly      bool             `json:"stoppedEarly"`
+	StopReason        string           `json:"stopReason"`
+	StopPath          string           `json:"stopPath"`
 }
 
 type FilterConfig struct {

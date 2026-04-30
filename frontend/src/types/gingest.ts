@@ -4,6 +4,9 @@ export interface TreeNode {
     isFile: boolean
     fullPath?: string
     content?: string
+    sizeBytes?: number
+    formattedSize?: string
+    estimatedTokens?: number
     children?: TreeNode[]
 }
 
@@ -82,4 +85,11 @@ export interface RecentDirectory {
     path: string
     name: string
     lastScanAt: string
+}
+
+export interface SelectedFileStats {
+    fileCount: number
+    sizeBytes: number
+    formattedSize: string
+    estimatedTokens: number
 }

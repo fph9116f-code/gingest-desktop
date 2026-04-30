@@ -36,8 +36,9 @@ export const buildXmlByFiles = (
     files: TreeNode[],
     exportType: string,
 ) => {
-    const estimatedTokens = Math.floor(
-        files.reduce((sum, file) => sum + (file.content?.length || 0), 0) / 4,
+    const estimatedTokens = files.reduce(
+        (sum, file) => sum + (file.estimatedTokens || Math.floor((file.content?.length || 0) / 4)),
+        0,
     )
 
     let xml = ''

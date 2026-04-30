@@ -67,6 +67,7 @@ func ScanLocalDirectoryWithProgress(
 
 	processedFiles := make([]string, 0)
 	fileContents := make(map[string]string)
+	fileMetadata := make(map[string]model.FileMetadata)
 
 	emitProgress := func(stage string, message string, currentPath string, force bool) {
 		if onProgress == nil {
@@ -163,7 +164,14 @@ func ScanLocalDirectoryWithProgress(
 		}
 
 		if fileInfo.Size() > options.MaxSingleFileSize {
-			addSkip(fmt.Sprintf("超过单文件大小限制：%s > %s", utils.FormatSize(fileInfo.Size()), utils.FormatSize(options.MaxSingleFileSize)), relativePath)
+			addSkip(
+				fmt.Sprintf(
+					"超过单文件大小限制：%s > %s",
+					utils.FormatSize(fileInfo.Size()),
+					utils.FormatSize(options.MaxSingleFileSize),
+				),
+				relativePath,
+			)
 			return nil
 		}
 
@@ -206,9 +214,15 @@ func ScanLocalDirectoryWithProgress(
 		}
 
 		content := string(contentBytes)
+		estimatedTokens := int64(len(content)) / 4
 
 		processedFiles = append(processedFiles, relativePath)
 		fileContents[relativePath] = content
+		fileMetadata[relativePath] = model.FileMetadata{
+			SizeBytes:       fileInfo.Size(),
+			FormattedSize:   utils.FormatSize(fileInfo.Size()),
+			EstimatedTokens: estimatedTokens,
+		}
 
 		fileCount++
 		totalSize += fileInfo.Size()
@@ -242,7 +256,7 @@ func ScanLocalDirectoryWithProgress(
 
 	emitProgress("building", "正在生成目录树", "", true)
 
-	tree := BuildDirectoryTree(processedFiles, fileContents)
+	tree := BuildDirectoryTree(processedFiles, fileContents, fileMetadata)
 
 	response := model.GingestResponse{
 		ProjectName:     "Local: " + filepath.Base(rootPath),
@@ -296,7 +310,7 @@ func buildNoFileHint(diagnostics model.ScanDiagnostics) string {
 		if strings.HasPrefix(topReason, "超过单文件大小限制") {
 			return "文件主要因为超过单文件大小限制被跳过。请在过滤配置里调大「单文件上限 MB」。"
 		}
-		return "没有匹配到有效文件。请查看下方跳过原因统计和样例，调整过滤配置后重新扫描。"
+		return "没有匹配到有效文件。请查看跳过原因统计和样例，调整过滤配置后重新扫描。"
 	}
 }
 

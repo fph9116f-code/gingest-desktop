@@ -8,14 +8,21 @@ import (
 )
 
 type helperNode struct {
-	Label    string
-	IsFile   bool
-	FullPath string
-	Content  string
-	ChildMap map[string]*helperNode
+	Label           string
+	IsFile          bool
+	FullPath        string
+	Content         string
+	SizeBytes       int64
+	FormattedSize   string
+	EstimatedTokens int64
+	ChildMap        map[string]*helperNode
 }
 
-func BuildDirectoryTree(paths []string, contentMap map[string]string) []model.TreeNode {
+func BuildDirectoryTree(
+	paths []string,
+	contentMap map[string]string,
+	metadataMap map[string]model.FileMetadata,
+) []model.TreeNode {
 	root := &helperNode{
 		Label:    "root",
 		ChildMap: map[string]*helperNode{},
@@ -40,9 +47,14 @@ func BuildDirectoryTree(paths []string, contentMap map[string]string) []model.Tr
 			current = current.ChildMap[part]
 
 			if i == len(parts)-1 {
+				meta := metadataMap[path]
+
 				current.IsFile = true
 				current.FullPath = path
 				current.Content = contentMap[path]
+				current.SizeBytes = meta.SizeBytes
+				current.FormattedSize = meta.FormattedSize
+				current.EstimatedTokens = meta.EstimatedTokens
 			}
 		}
 	}
@@ -71,6 +83,9 @@ func compressTree(node *helperNode) {
 		node.IsFile = singleChild.IsFile
 		node.FullPath = singleChild.FullPath
 		node.Content = singleChild.Content
+		node.SizeBytes = singleChild.SizeBytes
+		node.FormattedSize = singleChild.FormattedSize
+		node.EstimatedTokens = singleChild.EstimatedTokens
 		node.ChildMap = singleChild.ChildMap
 	}
 }
@@ -88,11 +103,14 @@ func childrenToList(node *helperNode) []model.TreeNode {
 		child := node.ChildMap[key]
 
 		treeNode := model.TreeNode{
-			Label:    child.Label,
-			IsFile:   child.IsFile,
-			FullPath: child.FullPath,
-			Content:  child.Content,
-			Children: childrenToList(child),
+			Label:           child.Label,
+			IsFile:          child.IsFile,
+			FullPath:        child.FullPath,
+			Content:         child.Content,
+			SizeBytes:       child.SizeBytes,
+			FormattedSize:   child.FormattedSize,
+			EstimatedTokens: child.EstimatedTokens,
+			Children:        childrenToList(child),
 		}
 
 		if len(treeNode.Children) == 0 {

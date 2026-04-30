@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { ElTree } from 'element-plus'
 import {
   Document,
@@ -7,7 +7,8 @@ import {
   Operation,
   Refresh,
 } from '@element-plus/icons-vue'
-import type { TreeNode } from '../types/gingest'
+import type { SelectedFileStats, TreeNode } from '../types/gingest'
+import { formatSize, formatToken, getTokenLevel } from '../utils/format'
 
 const props = defineProps<{
   treeData: TreeNode[]
@@ -17,24 +18,47 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'assemble-selected', files: TreeNode[]): void
   (e: 'restore-full'): void
+  (e: 'selection-change', stats: SelectedFileStats): void
 }>()
 
 const treeRef = ref<InstanceType<typeof ElTree>>()
 const filterText = ref('')
+const selectedStats = ref<SelectedFileStats>({
+  fileCount: 0,
+  sizeBytes: 0,
+  formattedSize: '0 B',
+  estimatedTokens: 0,
+})
 
 const treeProps = {
   children: 'children',
   label: 'label',
 }
 
+const selectedSummaryText = computed(() => {
+  return `${selectedStats.value.fileCount} 文件 / ${formatToken(selectedStats.value.estimatedTokens)} tokens / ${selectedStats.value.formattedSize}`
+})
+
 const filterNode = (value: string, data: any) => {
   if (!value) return true
-  return data.label?.toLowerCase().includes(value.toLowerCase())
+
+  const keyword = value.toLowerCase()
+  return (
+      data.label?.toLowerCase().includes(keyword) ||
+      data.fullPath?.toLowerCase().includes(keyword)
+  )
 }
 
 watch(filterText, (value) => {
   treeRef.value?.filter(value)
 })
+
+watch(
+    () => props.treeData,
+    () => {
+      clearChecked()
+    },
+)
 
 const getCheckedFileNodes = () => {
   if (!treeRef.value) return []
@@ -42,12 +66,51 @@ const getCheckedFileNodes = () => {
   return checkedNodes.filter((node) => node.isFile)
 }
 
+const calculateSelectedStats = (files: TreeNode[]): SelectedFileStats => {
+  const sizeBytes = files.reduce((sum, file) => sum + (file.sizeBytes || 0), 0)
+  const estimatedTokens = files.reduce(
+      (sum, file) => sum + (file.estimatedTokens || Math.floor((file.content?.length || 0) / 4)),
+      0,
+  )
+
+  return {
+    fileCount: files.length,
+    sizeBytes,
+    formattedSize: formatSize(sizeBytes),
+    estimatedTokens,
+  }
+}
+
+const updateSelectedStats = () => {
+  const files = getCheckedFileNodes()
+  const stats = calculateSelectedStats(files)
+  selectedStats.value = stats
+  emit('selection-change', stats)
+}
+
 const handleAssembleSelected = () => {
-  emit('assemble-selected', getCheckedFileNodes())
+  const files = getCheckedFileNodes()
+  emit('assemble-selected', files)
+  updateSelectedStats()
 }
 
 const clearChecked = () => {
   treeRef.value?.setCheckedKeys([])
+  selectedStats.value = {
+    fileCount: 0,
+    sizeBytes: 0,
+    formattedSize: '0 B',
+    estimatedTokens: 0,
+  }
+  emit('selection-change', selectedStats.value)
+}
+
+const getFileTokenTagType = (node: TreeNode) => {
+  const level = getTokenLevel(node.estimatedTokens || 0)
+
+  if (level === 'danger') return 'danger'
+  if (level === 'warning') return 'warning'
+  return 'info'
 }
 
 defineExpose({
@@ -59,13 +122,21 @@ defineExpose({
 <template>
   <el-card shadow="never" class="tree-card">
     <template #header>
-      <div class="card-header">
-        <strong>目录结构</strong>
+      <div class="tree-header">
+        <div class="tree-title-row">
+          <strong>目录结构</strong>
+
+          <el-tag
+              :type="selectedStats.estimatedTokens >= 20000 ? 'danger' : selectedStats.estimatedTokens >= 8000 ? 'warning' : 'info'"
+          >
+            已勾选：{{ selectedSummaryText }}
+          </el-tag>
+        </div>
 
         <div class="tree-actions">
           <el-input
               v-model="filterText"
-              placeholder="搜索文件"
+              placeholder="搜索文件 / 路径"
               size="small"
               clearable
               class="search-input"
@@ -101,14 +172,32 @@ defineExpose({
         show-checkbox
         check-on-click-node
         class="file-tree"
+        @check="updateSelectedStats"
+        @check-change="updateSelectedStats"
     >
       <template #default="{ node, data }">
         <span :class="data.isFile ? 'file-node' : 'folder-node'">
-          <el-icon>
-            <Document v-if="data.isFile" />
-            <Folder v-else />
-          </el-icon>
-          <span>{{ node.label }}</span>
+          <span class="node-main">
+            <el-icon>
+              <Document v-if="data.isFile" />
+              <Folder v-else />
+            </el-icon>
+            <span class="node-label">{{ node.label }}</span>
+          </span>
+
+          <span v-if="data.isFile" class="file-meta">
+            <el-tag size="small" type="info" effect="plain">
+              {{ data.formattedSize || '0 B' }}
+            </el-tag>
+
+            <el-tag
+                size="small"
+                :type="getFileTokenTagType(data)"
+                effect="plain"
+            >
+              {{ formatToken(data.estimatedTokens || 0) }} tokens
+            </el-tag>
+          </span>
         </span>
       </template>
     </el-tree>
@@ -121,11 +210,17 @@ defineExpose({
 }
 
 .tree-card :deep(.el-card__body) {
-  height: calc(100% - 58px);
+  height: calc(100% - 74px);
   overflow: auto;
 }
 
-.card-header {
+.tree-header {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tree-title-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -139,7 +234,7 @@ defineExpose({
 }
 
 .search-input {
-  width: 220px;
+  width: 240px;
 }
 
 .file-tree {
@@ -149,9 +244,32 @@ defineExpose({
 
 .file-node,
 .folder-node {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.node-main {
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.node-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-meta {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 10px;
 }
 
 .folder-node {

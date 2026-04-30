@@ -18,6 +18,7 @@ import type {
   GingestResponse,
   RecentDirectory,
   ScanProgress,
+  SelectedFileStats,
   TreeNode,
 } from './types/gingest'
 import {
@@ -37,6 +38,12 @@ const fullResultData = ref<GingestResponse | null>(null)
 const filterConfig = ref<FilterConfig | null>(null)
 const recentDirectories = ref<RecentDirectory[]>([])
 const scanProgress = ref<ScanProgress | null>(null)
+const selectedStats = ref<SelectedFileStats>({
+  fileCount: 0,
+  sizeBytes: 0,
+  formattedSize: '0 B',
+  estimatedTokens: 0,
+})
 
 const currentViewTitle = ref('全部提取结果')
 const topHeight = ref(300)
@@ -126,6 +133,12 @@ const prepareScanState = (messageText = '准备扫描目录') => {
   resultData.value = null
   fullResultData.value = null
   currentViewTitle.value = '全部提取结果'
+  selectedStats.value = {
+    fileCount: 0,
+    sizeBytes: 0,
+    formattedSize: '0 B',
+    estimatedTokens: 0,
+  }
 
   scanProgress.value = {
     stage: 'start',
@@ -304,7 +317,10 @@ const handleAssembleSelected = (selectedFiles: TreeNode[]) => {
   resultData.value = {
     ...fullResultData.value,
     fileCount: selectedFiles.length,
-    estimatedTokens: Math.floor(xml.length / 4),
+    estimatedTokens: selectedFiles.reduce(
+        (sum, file) => sum + (file.estimatedTokens || Math.floor((file.content?.length || 0) / 4)),
+        0,
+    ),
     formattedSize: `${(new Blob([xml]).size / 1024).toFixed(2)} KB`,
     content: xml,
   }
@@ -320,6 +336,10 @@ const restoreFullView = () => {
   currentViewTitle.value = '全部提取结果'
   fileTreePanelRef.value?.clearChecked()
   ElMessage.success('已恢复全库 XML 视图')
+}
+
+const handleSelectionChange = (stats: SelectedFileStats) => {
+  selectedStats.value = stats
 }
 
 const handleCopy = async () => {
@@ -386,6 +406,12 @@ const clearResult = () => {
   fullResultData.value = null
   currentViewTitle.value = '全部提取结果'
   scanProgress.value = null
+  selectedStats.value = {
+    fileCount: 0,
+    sizeBytes: 0,
+    formattedSize: '0 B',
+    estimatedTokens: 0,
+  }
 }
 
 const startResize = (event: MouseEvent) => {
@@ -484,6 +510,7 @@ onUnmounted(() => {
                     :filter-config="filterConfig"
                     :message="message"
                     :is-selected-view="hasSelectedView"
+                    :selected-stats="selectedStats"
                 />
 
                 <FileTreePanel
@@ -492,6 +519,7 @@ onUnmounted(() => {
                     :selected-view="hasSelectedView"
                     @assemble-selected="handleAssembleSelected"
                     @restore-full="restoreFullView"
+                    @selection-change="handleSelectionChange"
                 />
               </div>
             </div>
