@@ -3,6 +3,7 @@ import { computed, h, onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
 
 import AppHeader from './components/AppHeader.vue'
+import CodeSearchPanel from './components/CodeSearchPanel.vue'
 import DropScanOverlay from './components/DropScanOverlay.vue'
 import FileTreePanel from './components/FileTreePanel.vue'
 import RecentDirectories from './components/RecentDirectories.vue'
@@ -46,15 +47,18 @@ const selectedStats = ref<SelectedFileStats>({
 })
 
 const currentViewTitle = ref('全部提取结果')
-const topHeight = ref(300)
+const topHeight = ref(420)
 const isResizing = ref(false)
-const fileTreePanelRef = ref<InstanceType<typeof FileTreePanel>>()
+
+const fileTreePanelRef = ref<InstanceType<typeof FileTreePanel> & {
+  checkFilesByPaths?: (paths: string[]) => void
+}>()
 
 const dragActive = ref(false)
 let dragDepth = 0
 
 let resizeStartY = 0
-let resizeStartTopHeight = 300
+let resizeStartTopHeight = 420
 
 const hasResult = computed(() => !!resultData.value)
 const hasSelectedView = computed(() => currentViewTitle.value !== '全部提取结果')
@@ -329,6 +333,31 @@ const handleAssembleSelected = (selectedFiles: TreeNode[]) => {
   ElMessage.success(`组装完成，共 ${selectedFiles.length} 个文件`)
 }
 
+const handleCheckSearchResults = (files: TreeNode[]) => {
+  if (!files || files.length === 0) {
+    ElMessage.warning('当前没有可勾选的搜索结果')
+    return
+  }
+
+  const paths = files
+      .map((file) => file.fullPath || file.label)
+      .filter(Boolean)
+
+  fileTreePanelRef.value?.checkFilesByPaths?.(paths)
+
+  ElMessage.success(`已勾选搜索结果：${files.length} 个文件`)
+}
+
+const handleAssembleSearchResults = (files: TreeNode[]) => {
+  if (!files || files.length === 0) {
+    ElMessage.warning('当前没有可组装的搜索结果')
+    return
+  }
+
+  handleCheckSearchResults(files)
+  handleAssembleSelected(files)
+}
+
 const restoreFullView = () => {
   if (!fullResultData.value) return
 
@@ -430,8 +459,8 @@ const handleResize = (event: MouseEvent) => {
   if (!isResizing.value) return
 
   const deltaY = event.clientY - resizeStartY
-  const maxHeight = Math.max(220, window.innerHeight - 360)
-  const nextHeight = Math.min(Math.max(resizeStartTopHeight + deltaY, 180), maxHeight)
+  const maxHeight = Math.max(320, window.innerHeight - 260)
+  const nextHeight = Math.min(Math.max(resizeStartTopHeight + deltaY, 320), maxHeight)
 
   topHeight.value = nextHeight
 }
@@ -513,14 +542,22 @@ onUnmounted(() => {
                     :selected-stats="selectedStats"
                 />
 
-                <FileTreePanel
-                    ref="fileTreePanelRef"
-                    :tree-data="treeData"
-                    :selected-view="hasSelectedView"
-                    @assemble-selected="handleAssembleSelected"
-                    @restore-full="restoreFullView"
-                    @selection-change="handleSelectionChange"
-                />
+                <div class="right-panel">
+                  <CodeSearchPanel
+                      :tree-data="treeData"
+                      @check-results="handleCheckSearchResults"
+                      @assemble-results="handleAssembleSearchResults"
+                  />
+
+                  <FileTreePanel
+                      ref="fileTreePanelRef"
+                      :tree-data="treeData"
+                      :selected-view="hasSelectedView"
+                      @assemble-selected="handleAssembleSelected"
+                      @restore-full="restoreFullView"
+                      @selection-change="handleSelectionChange"
+                  />
+                </div>
               </div>
             </div>
 
@@ -599,14 +636,27 @@ onUnmounted(() => {
 
 .top-section {
   flex-shrink: 0;
-  min-height: 180px;
+  min-height: 320px;
 }
 
 .top-grid {
   height: 100%;
   display: grid;
-  grid-template-columns: 360px 1fr;
+  grid-template-columns: 360px minmax(0, 1fr);
   gap: 16px;
+}
+
+.right-panel {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.right-panel :deep(.tree-card) {
+  flex: 1;
+  min-height: 0;
 }
 
 .resize-divider {

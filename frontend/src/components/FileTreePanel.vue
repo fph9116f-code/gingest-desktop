@@ -39,14 +39,14 @@ const selectedSummaryText = computed(() => {
   return `${selectedStats.value.fileCount} 文件 / ${formatToken(selectedStats.value.estimatedTokens)} tokens / ${selectedStats.value.formattedSize}`
 })
 
-const filterNode = (value: string, data: any) => {
+const filterNode = (value: string, data: any): boolean => {
   if (!value) return true
 
   const keyword = value.toLowerCase()
-  return (
-      data.label?.toLowerCase().includes(keyword) ||
-      data.fullPath?.toLowerCase().includes(keyword)
-  )
+  const label = String(data?.label || '').toLowerCase()
+  const fullPath = String(data?.fullPath || '').toLowerCase()
+
+  return label.includes(keyword) || fullPath.includes(keyword)
 }
 
 watch(filterText, (value) => {
@@ -104,6 +104,44 @@ const clearChecked = () => {
   }
   emit('selection-change', selectedStats.value)
 }
+const getAllFileNodes = () => {
+  const result: TreeNode[] = []
+
+  const walk = (nodes: TreeNode[]) => {
+    nodes.forEach((node) => {
+      if (node.isFile) {
+        result.push(node)
+        return
+      }
+
+      if (node.children?.length) {
+        walk(node.children)
+      }
+    })
+  }
+
+  walk(props.treeData || [])
+
+  return result
+}
+
+const checkFilesByPaths = (paths: string[]) => {
+  if (!treeRef.value) return
+
+  const pathSet = new Set(
+      paths
+          .map((path) => path?.trim())
+          .filter(Boolean),
+  )
+
+  const checkedKeys = getAllFileNodes()
+      .filter((file) => pathSet.has(file.fullPath || file.label))
+      .map((file) => file.id)
+      .filter((id): id is number => typeof id === 'number')
+
+  treeRef.value.setCheckedKeys(checkedKeys)
+  updateSelectedStats()
+}
 
 const getFileTokenTagType = (node: TreeNode) => {
   const level = getTokenLevel(node.estimatedTokens || 0)
@@ -116,6 +154,7 @@ const getFileTokenTagType = (node: TreeNode) => {
 defineExpose({
   clearChecked,
   getCheckedFileNodes,
+  checkFilesByPaths,
 })
 </script>
 
